@@ -1,0 +1,13 @@
+fastapi
+PyMuPDF
+pytesseract
+pillow
+google-generativeai
+uvicorn
+motor
+pydantic
+python-jose[cryptography]
+passlib[bcrypt]
+pydantic[email]
+python-multipart
+pymongo[srv]
