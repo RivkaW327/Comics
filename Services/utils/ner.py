@@ -1,0 +1,115 @@
+import sys
+from config.config_loader import config
+
+sys.path.append(config["services"]["maverick_coref"]["path"])
+
+from collections import defaultdict, Counter
+from Services.maverick_coref.maverick import Maverick
+from torch import cuda
+
+coref_model = Maverick(
+  hf_name_or_path= config["services"]["maverick_coref"]["weights"],
+  device="cpu" if not cuda.is_available() else "cuda:0"
+)
+
+import spacy
+from Services.entity import Entity
+
+#  (python -m spacy download en_core_web_trf)
+nlp = spacy.load("en_core_web_trf")
+
+from Services.utils.description_extraction import api_to_gemini
+
+def entity_extraction(chapters: list[str]) -> list[Entity]:
+    all_entities = []
+
+    for chapter in chapters:
+        c_entities = []
+        ners = ner(chapter)
+        corefs = coreference_resolution(chapter)
+
+        # מיפוי מיקום -> (text, label)
+        ner_positions = {(start, end): (text, label) for text, label, start, end in ners}
+
+        # מיפוי מזהה קלסטר -> רשימת אזכורים ו-label (אם נמצא מ-NER)
+        clusters = {}
+
+        for cluster_id, (mentions_texts, mentions_offsets) in enumerate(corefs):
+            cluster_mentions = []
+            labels = []
+
+            for text, (start_char, end_char) in zip(mentions_texts, mentions_offsets):
+                cluster_mentions.append(text)
+                if (start_char, end_char) in ner_positions and label is None:
+                    _, l = ner_positions[(start_char, end_char)]
+                    labels.append(l)
+
+            label = Counter(labels).most_common(1)[0][0] if labels else "UNKNOWN"
+
+            # שם הדמות יהיה האזכור הראשון
+            name = cluster_mentions[0]
+            # שאר האזכורים ייחשבו ככינויים
+            nicknames = list(cluster_mentions[1:])
+
+            # נבנה ישות לפי המיקום של כל האזכורים בטקסט
+            coref_positions = [start for (_, (start, _)) in zip(mentions_texts, mentions_offsets)]
+
+            entity = Entity(name, nicknames, label, coref_positions)
+            c_entities.append(entity)
+
+            entity.description = description_extraction(chapter, c_entities)
+
+        all_entities.extend(c_entities)
+
+    return all_entities
+
+
+def ner(chapter):
+    doc = nlp(chapter)
+    entities = [(ent.text, ent.label_, ent.start_char, ent.end_char) for ent in doc.ents] # ent.start, ent.end,
+    return entities
+
+def coreference_resolution(self, chapter: str): #-> list[Entity]
+    # chapter_chars = []
+    result = coref_model.predict(chapter)
+    chapter_chars = zip(result["clusters_token_text"], result["clusters_char_offsets"])
+    return chapter_chars
+
+def description_extraction(self, chapter: str, characters: list[Entity]):
+    # api_to_gemini(chapter, characters)
+    descriptions = api_to_gemini(chapter, characters)
+    print(descriptions)
+    for char, description in descriptions.items():
+        c = self.get_char_by_nickname(char, characters)
+        c.description = description
+
+
+
+# def coreference_resolution(chapters: list[str]) -> list[list[Entity]]:
+#     chars = []
+#     for i, chapter in enumerate(chapters):
+#         c = coreference_resolution_for_chapter(chapter)
+#         chars.append(c)
+#     return chars
+
+
+        # c = Entity(token_texts[0], token_texts, char_offsets)
+        # c.description = None
+        # chapter_chars.append(c)
+    # self.extract_descriptions(chapter,chapter_chars) # update the descriptions of the characters
+    # self.summerize_chapter(chapter, [c.coref_position for c in chapter_chars])
+
+
+# text = [
+#     "The Gift of the Magi ONE DOLLAR AND EIGHIY-SEVEN CENTS. That was all. And sixty cents of it was in pennies, Pennies saved one and two at a time by bulldozing the grocer and the vegetable man and the butcher until one’s cheek burned with the silene imputation of parsimony that such close dealing implied, Three times Della counted it, One dollar and eighty-seven cents, And the next day would be Christmas. There was clearly nothing left to do but flop down on the shabby little couch and howl. So Della did it. Which instigates the moral retlecticn that life is made up of sobs, sniffles, and smiles, with snitiles predominating, While the mistress of the home is gradually subsiding trom the first stage to the second, take a look at the home. A furnished flat at $8 per week. It did not exactly beggar description, but it cer- tainly had that word on the look-out for the mendicancy squad. In the vestibule below was a letter-box into which no letter would go, and an electric buttan from which no mortal finger could coax a ring. Also appertaining thereunto was a card bearing the name ‘Mr. James Dillingham Young.’ The ‘Dillingham’ had been flung to the breeze during a former period of prosperity when its possesscr was being paid $30 per week. Now, when the income was shrunk to $20, the letters of ‘Dillingham’ lookeé blurred, as though they were thinking seri- ously of contracting to a modest and unassuming D, But whenever Mr, James Dillingham Young came home and reached his far above he was called ‘Jim’ and greatly bugged by Mrs. James Dillingham Young, already introduced to you as Della. Which is all very good. Della finished her cry and attended to her cheeks with the powder rag. She stood by the window and looked out dully at a grey cat walking a grey fence in a grey backyard. To-morrow would be Christmas Day, and she had only $1.87 with which to buy Jim a present. She had heen saving every penny she could for  2 © WENRY ~ 100 SELECTED STORIES months, with this result. Twenty dollars a week doesn’t go far. Expenses had been greater than she had calculated. They always are. Only $1.87 to buy a present for Jim. Her Jim. Many a happy hour she had spent planning for something nice for him. Some- thing fine and rare and sterling ~ something just a little bit near to being worthy of the honour of being owned by Jim. ‘There was a pier-glass between the windows of the room. Per- haps you have seen a pier-glass in an $8 flat. A very thin and very agile person may, by observing his reflection in a rapid sequence of longitudinal strips, obtain a fairly accarate conception of his oaks. Della, being slender, had mastered the art. Suddenly she whirled from the window and stood before the glass. Her eyes were shining brilliantly, but her face had lost its colour within twenty seconds, Rapidly she pulled down her hair ang let i fll to its full length, Now, there were two possessions of the James Dillingham Youngs in which they both took a mighty pride. One was Jim’s gold watch that had been his father's and his grandfather's. ‘The other was Della’s hair. Had the Queen of Sheba lived in che flat across the airshafi, Della would have let her hair hang out the window some day to dry just to depreciate Her Majesty’s jewels and gifts, Had ‘King Soloman heen the. janitor, with all his treasures piled up in the hasement, Jim would have pulled ont his watch every time he passed, just to see him pluck at his beard from envy. ‘So now Della’s beautiful hair fell about her, rippling and shin- ing like a cascade of brawn waters. It reached belaw her knee and ‘made itself almost a garment for her. Ané then she did it up again nervously and quickly. Once she faltered for a minute and stood still while a tear or two splashed on the wom red carpet. On went her old brown jackes on went her olf brown hat With a whirl of skirts and with the brilliant sparkle still in her eyes, she fluttered out of the door and down the stairs to the street, Where she stopped the sign reac: ‘Mime. Sofronie. Hair Goods of All Kinds.’ Ore flight up Della ran, and collected herself, pant- ing. Madame, large, too white, chilly, hardly looked the ‘Sofronie. “Will you buy my hair?’ asked Della, ‘I buy hair,’ said Madame. “Take yer hat off and lets have a sight at the looks of it’ ‘Down rippled the brown cascade. “Twenty dollars,’ said Madame, lifting the mass with a practised hand.  © HENRY ~ 100 SELECTED STORIES 3 ‘Give it t me quick,’ said Della. Oh, and the next two hours tripped by on rosy wings. Forget the hashed metaphor. She was ransacking the stores for Jiun’s present. She found i¢ at fast. It surely had been made for Jim and no one else. ‘There was no other like it in any of the stores, and she had turned all of them inside out. It was a platinum fob chain simple and chaste in design, proper'y proclaiming its value by substance alone and not by meretricious ornamentation — as all good things should do. It was even worthy of The Watch, As soon as she saw it she knew chat it must be Jim’s. It was like him. Quietness and value ~ the descripticn applied to both. Twenty-one dollars they took from her for it, and she hurried home with the 87 cents, With that chain on his watch Jim might be properly anxious about the time in any company. Grand as the watch was, he sometimes looked at it on the sly on account of the old leather strap. that he used in place of a chain. When Della reached home her intoxication gave way a little to prudence and reason, She got out her curling irons and lighted the gas and went to work repairing the ravages made by generosity added to love, Which is always a wemendous task, deat friends ~ a mammoth task. Within forty minutes her head was covered with tiny, close- fying curls that made her lock wonderfully like a truant schoolboy, She looked at her reflection in the mirror long, carefully, and critically, ‘If Jim doesn’t kill me,’ she said to herself, ‘before be takes a second look at me, he'll say [lock like a Coney Island chores girl But what could 1 de — oh! what could | do with a dollar and cighty-seven cents?” ‘At seven o'clock the coffee was made and the frying-pan was on the back uf the stove, het and ready to cook the chops. Jim was never late. Dells doubled the fob chain iat her hand and sat on the corner of the table near the door that he always entered. ‘Then she heard his step an the stair away down on the first flight, and she turned white for just a moment. She had a habit of saying little silent prayers about the simplest everyday things, and naw she whispered: ‘Please God, make hitu thirk Iam still pretty.’ ‘The door opened and Jim stepped in and closed it. He looked thin and very serious. Poor fellow, he was only twenty-two ~ and to be burdened with a family! He needed a new overcoat and he was without gloves,  4 © HENRY ~ 100 SELECTED STORIES Jim stepped inside the door, as immovable as a setter at the scent of quail. His eyes were fixed upon Della, and there was an expression in them that she could not read, and it terrified her. It ‘was not anger, nor surprise, nor disapproval, nor horror, not any of the sentiments that she had been prepared for. He simply stared at her fixedly with that peculiar expression on his face. Della wriggled off the table and went for him, ‘Jim, darling; she cried, ‘don’t look at me that way. I had my hair cut off and sold it because I couldn't have fived through Christmas without giving you a present. Ir'lf grow out again ~ you won't mind, will you? 1 just had to do it. My hair grows awfully fast. Say “Merry Christmas! Jim, and let’s be happy. You don’t know what a nice ~ what a beautiful, nice gift I've got for you.’ “You've cut off your hair?” asked Jim, laboriously, as if he had not arrived at that patent fact yet even after the hardest mental labour. “Cut it off and sold it; said Della, “Don’t you take mm just as well, anyhow? I'm me without my hair, ain't 1?” Jim looked about the room curiously. “You say your hair is gone?\" he said with an air almost of idiocy, *You needn't lock for it” said Della, ‘It’s sold, I tell you - sold and gone, too. I¢s Christmas Eve, boy. Be good to me, for it went for you. Maybe the hairs of my head were numbered, she went on with a sudden serious sweetness, ‘but nobody could ever count my Jove for you. Shall I put the chops on, Jim? ‘Out of his trance Jim seemed quickly co wake, He enfolded his Della. For ten seconds let us regard with discreet scrutiny some inconsequential object in the other direction. Eight dollars a week or a million a year ~ what is the difference? A mathematician or a wit would give you the wrong answer. The magi brougbt valuable gifts, but that was not among them. ‘This dark assertion will be illuminated later on. ‘Jim drew a package trom his overcoat pocket and threw it upon the table, “Don’t make any mistake, Dell,’ he said, ‘about me. 1 don’t think there's anything in the way of a haircw: or a shave or a shampoo that could make me like my gir! any less. But if you'll unwrap that, package you may see why you had me going awhile at first.” ‘White fingers and nimble tore at the string and paper. And then an ecstatic scream of joy; and ther, alas! a quick feminine change to hysterical tears and wails, necessitating the immediate employment of all the comforting powers of the lord of the flat.  © HENRY ~ 100 SELECTED STORIES 3 For there lay The Combs ~ the set of combs, side and back, that Della had worshipped for long in a Broadway window. Beautiful combs, pure tortoiseshell, with jewelled rims ~ just the shade to wear in the beautiful vanished hair. They were expensive combs, she knew, and her heart hac simply craved and yearned aver them without the least hope of possession. And now they were hers, hut the tresses that should have adarned the coveted adornments were gone. Bur she hugged them to her bosom, and at length she was able to look up with dim eyes and a smile and say: ‘My hair grows so fast, Jim? gh then Del leaped up ike «lied singed ex and cried, ‘Ob, 7 Jim had not yet seen his beautiful present, She held it out w him eagerly upon her open palm, The dull precious metal seemed to flash with a reflection of her bright and ardent spirit. ‘Isn’t it a dandy, Jim? 1 hunted all over town to find it, You'll have to look at the time a hundred times a day now. Give me your watch, J want to see how it looks on it.” Instead of obeying, jim tumbled down on the couch and put his hhands under the back of his head and smiled. ‘Dell, said he, ‘lees put our Christmas presents away and keep em awhile. They're too nice to use just at present I sold the watch to get the money to buy your combs, And now suppose you put the chops on.’ “The magi, as you know, were wise men ~ wonderfully wise men ~who brought gifts tn the Bahe in the manger. They invented the are of giving Christmas presents. Being wise, their gifts were no doubt wise ones, possibly bearing the privilege of exchange in case of duplication. And here I have lamely related to you the unevent- fal chronicle of two foolish children in a flat who most unwisely sacrificed for cach other the greatest treasures of their house. But in a last word 10 the wise of these days, Jet it he said that of all who give gifts these two were the wisest. Of all who give and receive gifts, such as they are wisest. Everywhere they are wisest. They are the magi. "
+#   ]
+# print(entity_extraction(text))
+
+# text = """
+# Apple is planning to release a new product next month in California.
+# John Smith attended the conference organized by OpenAI last week.
+# """
+#
+# doc = extract_entities(text)
+# print("Entities found:")
+# print(doc)

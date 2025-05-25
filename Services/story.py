@@ -7,22 +7,19 @@ from statistics import mean
 # import multiprocessing
 # from concurrent.futures import ProcessPoolExecutor, as_completed
 
+from Services.utils.ner import coref_model
 import textranker
 from textranker import TextRanker
 
-import re
-from collections import Counter
+from .entity import Entity
 
-from .character import Character
-from .coreference_resolution import coref_model
-
-from .description_extraction import api_to_gemini
+from Services.utils.description_extraction import api_to_gemini
 
 class Story:
     def __init__(self, path: str):
         self.text, self.chapters, self.paragraphs = self.extract_text(path)
-        self.characters = self.extract_characters()
-        self.keyParagraphs = []
+        # self.characters = self.extract_characters()
+        # self.keyParagraphs = []
 
     def extract_text(self, path: str):
         if path.endswith(".pdf"):
@@ -185,14 +182,14 @@ class Story:
         chapter_chars = []
         result = model.predict(chapter)
         for token_texts, char_offsets in zip(result["clusters_token_text"], result["clusters_char_offsets"]):
-            c = Character(token_texts[0], token_texts, char_offsets)
+            c = Entity(token_texts[0], token_texts, char_offsets)
             c.description = None
             chapter_chars.append(c)
-        self.extract_descriptions(chapter,chapter_chars) # update the descriptions of the characters
+        # self.extract_descriptions(chapter,chapter_chars) # update the descriptions of the characters
         # self.summerize_chapter(chapter, [c.coref_position for c in chapter_chars])
         return chapter_chars
 
-    def extract_descriptions(self, chapter: str, characters: list[Character]):
+    def extract_descriptions(self, chapter: str, characters: list[Entity]):
         # api_to_gemini(chapter, characters)
         descriptions = api_to_gemini(chapter, characters)
         print(descriptions)
@@ -200,7 +197,7 @@ class Story:
             c = self.get_char_by_nickname(char, characters)
             c.description = description
 
-    def get_char_by_nickname(self, nickname: str, characters: list[Character]) -> Character:
+    def get_char_by_nickname(self, nickname: str, characters: list[Entity]) -> Entity:
         for character in characters:
             for nName in character.nicknames:
                 if nName == nickname:

@@ -28,19 +28,19 @@ async def register(user_create: UserCreate):
     return {"name": user.username, "email": user.email, "token": token}
 
 
-@router.post("/login", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    auth_service = AuthService()
-    try:
-        token = await auth_service.login(form_data.email, form_data.password)
-    except(Exception) as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    return token
+# @router.post("/login", response_model=Token)
+# async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+#     auth_service = AuthService()
+#     try:
+#         token = await auth_service.login(form_data.email, form_data.password)
+#     except(Exception) as e:
+#         raise HTTPException(
+#             status_code=status.HTTP_401_UNAUTHORIZED,
+#             detail="Incorrect username or password",
+#             headers={"WWW-Authenticate": "Bearer"},
+#         )
+#
+#     return token
 
 
 # גרסה נוספת של login שמקבלת JSON במקום form data

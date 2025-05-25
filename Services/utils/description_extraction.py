@@ -6,12 +6,12 @@
 
 from FastAPIProject.config.config_loader import config
 import json
-from Services.character import Character
+from Services.entity import Entity
 
 from google import genai
 
 
-def api_to_gemini(passage: str, characters: list[Character]): # -> dict:
+def api_to_gemini(passage: str, characters: list[Entity]): # -> dict:
     charsWithNicks = [f"{i}. {char.name} whose nicknames is: {char.nicknames}" for i, char in enumerate(characters)]
     prompt = f"""
     Given the following passage, for each of the following characters extract the appearance. If there is no appearance description - do not mention the character. The output will be in JSON format (For example: {{"main name of character like 'Ms. goldman'": {{"feature": "feature description", "feature": "feature description"}}, "main name of additional character like 'Avi Cohen'": {{"feature": "feature description"}}}} etc.):
