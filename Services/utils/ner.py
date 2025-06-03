@@ -1,11 +1,11 @@
 import sys
-from config.config_loader import config
+from FastAPIProject.config.config_loader import config
 
 sys.path.append(config["services"]["maverick_coref"]["path"])
 
 from textranker import Interval, IntervalTree
-from collections import defaultdict, Counter
-from Services.maverick_coref.maverick import Maverick
+from collections import Counter
+from FastAPIProject.Services.maverick_coref.maverick import Maverick
 from torch import cuda
 
 coref_model = Maverick(
@@ -14,10 +14,10 @@ coref_model = Maverick(
 )
 
 import spacy
-from Services.entity import Entity
+from FastAPIProject.Models.domain.entity import Entity
 
 nlp = spacy.load("en_core_web_sm")
-from Services.utils.description_extraction import api_to_gemini
+from FastAPIProject.Services.utils.description_extraction import api_to_gemini
 
 
 def entity_extraction(chapters: list[str]) -> list[Entity]:
@@ -75,7 +75,7 @@ def entity_extraction(chapters: list[str]) -> list[Entity]:
             # נבנה ישות לפי המיקום של כל האזכורים בטקסט
             coref_positions = [(start, end) for (_, (start, end)) in zip(mentions_texts, mentions_offsets)]
 
-            entity = Entity(name, nicknames, label, coref_positions)
+            entity = Entity(name, label, nicknames, coref_positions)
             c_entities.append(entity)
 
         # חילוץ תיאורים

@@ -4,7 +4,7 @@ from pydantic import EmailStr
 
 
 from FastAPIProject.Repositories.user_repository import UserRepository
-from FastAPIProject.models.user import UserInDB, UserCreate, User, Token
+from FastAPIProject.Models.api.user import UserInDB, UserCreate, User, Token
 from FastAPIProject.Services.utils.auth import verify_password, get_password_hash, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
 
 

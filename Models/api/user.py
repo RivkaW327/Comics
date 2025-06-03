@@ -1,5 +1,6 @@
+# models/user.py - עדכון למודל המשתמש
 from pydantic import BaseModel, Field, EmailStr, GetJsonSchemaHandler
-from typing import Optional, Annotated, Any
+from typing import Optional, Annotated, Any, List
 from datetime import datetime
 from bson import ObjectId
 from pydantic_core import core_schema
@@ -33,7 +34,6 @@ class PyObjectId(ObjectId):
 
 
 class UserBase(BaseModel):
-    # full_name: Optional[str] = None
     username: str
     email: EmailStr
 
@@ -48,6 +48,7 @@ class UserCreate(UserBase):
 class UserInDB(UserBase):
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
     hashed_password: str
+    stories: List[str] = Field(default_factory=list)  # רשימת IDs של הסיפורים
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
@@ -60,6 +61,7 @@ class UserInDB(UserBase):
 
 class User(UserBase):
     id: str = Field(..., alias="_id")
+    stories: List[str] = Field(default_factory=list)
 
     model_config = {
         "populate_by_name": True,

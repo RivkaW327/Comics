@@ -1,7 +1,8 @@
+# Repositories/user_repository.py - עדכון עם תמיכה בסיפורים
 from bson import ObjectId
 from datetime import datetime
 from .database import Database
-from models.user import UserInDB, UserCreate
+from FastAPIProject.Models.api.user import UserInDB, UserCreate
 from typing import Optional
 
 
@@ -26,6 +27,7 @@ class UserRepository:
         user_data = user.model_dump(exclude={"password"})
         user_data.update({
             "hashed_password": hashed_password,
+            "stories": [],  # רשימה ריקה של סיפורים
             "created_at": datetime.now(),
             "updated_at": datetime.now()
         })
@@ -47,3 +49,25 @@ class UserRepository:
         if user_data:
             return UserInDB(**user_data)
         return None
+
+    async def add_story_to_user(self, user_id: str, story_id: str) -> bool:
+        """הוספת סיפור לרשימת הסיפורים של המשתמש"""
+        result = await self.collection.update_one(
+            {"_id": ObjectId(user_id)},
+            {
+                "$push": {"stories": story_id},
+                "$set": {"updated_at": datetime.now()}
+            }
+        )
+        return result.modified_count > 0
+
+    async def remove_story_from_user(self, user_id: str, story_id: str) -> bool:
+        """הסרת סיפור מרשימת הסיפורים של המשתמש"""
+        result = await self.collection.update_one(
+            {"_id": ObjectId(user_id)},
+            {
+                "$pull": {"stories": story_id},
+                "$set": {"updated_at": datetime.now()}
+            }
+        )
+        return result.modified_count > 0
