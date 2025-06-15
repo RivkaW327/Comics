@@ -29,16 +29,16 @@ def entity_extraction(chapters: list[str]) -> list[Entity]:
         print(ners)
         corefs = coreference_resolution(chapter)
 
-        # מיפוי מיקום -> (text, label)
+        # map the loction -> (text, label)
         ner_positions = {(start, end): (text, label) for text, label, start, end in ners}
 
-        # בנה עץ אינטרוולים מה-NER - באופן נכון
-        ner_tree = IntervalTree()  # יוצר wrapper חדש
+        # build the interval tree for NER positions
+        ner_tree = IntervalTree()
         for text, label, start, end in ners:
             interval = Interval(start, end)
-            ner_tree.insert(interval)  # מוסיף לעץ ישירות
+            ner_tree.insert(interval)
 
-        # מיפוי מזהה קלסטר -> רשימת אזכורים ו-label
+        # map cluster id -> list of coreference -label
         clusters = {}
 
         for cluster_id, (mentions_texts, mentions_offsets) in enumerate(corefs):
@@ -49,13 +49,13 @@ def entity_extraction(chapters: list[str]) -> list[Entity]:
                 cluster_mentions.append(text)
                 interval = Interval(start_char, end_char)
 
-                # חיפוש בעץ - מחזיר dict או None
+                # search in tree - return dict or None
                 overlap_result = ner_tree.overlapSearch(interval)
 
                 if overlap_result is None:
                     continue
 
-                # חילוץ המידע מהתוצאה
+                # extract the label from the first overlap
                 overlap_interval = overlap_result['interval']
                 overlap_start = overlap_interval.low
                 overlap_end = overlap_interval.high
@@ -66,19 +66,14 @@ def entity_extraction(chapters: list[str]) -> list[Entity]:
 
             print(labels)
             label = Counter(labels).most_common(1)[0][0] if labels else "UNKNOWN"
-
-            # שם הדמות יהיה האזכור הראשון
             name = cluster_mentions[0]
-            # שאר האזכורים ייחשבו ככינויים
             nicknames = list(cluster_mentions[1:])
-
-            # נבנה ישות לפי המיקום של כל האזכורים בטקסט
             coref_positions = [(start, end) for (_, (start, end)) in zip(mentions_texts, mentions_offsets)]
 
             entity = Entity(name, label, nicknames, coref_positions)
             c_entities.append(entity)
 
-        # חילוץ תיאורים
+        # description extraction
         descriptions = description_extraction(chapter, c_entities)
         for ent, description in descriptions.items():
             c = get_ent_by_nickname(ent, c_entities)
@@ -87,7 +82,6 @@ def entity_extraction(chapters: list[str]) -> list[Entity]:
 
         all_entities.extend(c_entities)
 
-        # ניקוי מפורש של העץ (אופציונלי אבל מומלץ)
         del ner_tree
 
     return all_entities

@@ -63,35 +63,32 @@ class StoryService:
         }
 
     async def create_story_from_file(self, story_create: StoryCreate, user_id: str) -> str:
-        """יצירת סיפור מקובץ"""
+        """create a new story from a file"""
         if not os.path.exists(story_create.file_path):
             raise FileNotFoundError(f"File not found: {story_create.file_path}")
 
-        # בדיקה אם כבר קיים סיפור עם אותה כותרת עבור המשתמש
+        # if the story already exists for the user, raise an error
         existing_story = await self.story_repository.get_story_by_title_and_user(
             story_create.title, user_id
         )
         if existing_story:
             raise ValueError(f"Story with title '{story_create.title}' already exists for this user")
 
-        # try:
-            # יצירת אובייקט Story מהקובץ באמצעות StoryProcessor
-        story = self.story_processor.create_story_from_file(story_create.file_path)
+        try:
+            #create a Story object from the file using StoryProcessor
+            story = self.story_processor.create_story_from_file(story_create.file_path)
 
-        # בדיקה שהסיפור לא ריק
-        if story.is_empty():
-            raise ValueError("The processed story is empty or invalid")
+            if story.is_empty():
+                raise ValueError("The processed story is empty or invalid")
+            story_data = self._story_to_model(story, story_create.title, story_create.file_path, user_id)
 
-        # המרה למודל של מסד הנתונים
-        story_data = self._story_to_model(story, story_create.title, story_create.file_path, user_id)
+            # save in db
+            story_id = await self.story_repository.create_story(story_data, user_id)
 
-        # שמירה במסד הנתונים
-        story_id = await self.story_repository.create_story(story_data, user_id)
+            return story_id
 
-        return story_id
-
-        # except Exception as e:
-        #     raise Exception(f"Failed to create story: {str(e)}")
+        except Exception as e:
+            raise Exception(f"Failed to create story: {str(e)}")
 
     async def get_story(self, story_id: str, user_id: str) -> Optional[dict]:
         """קבלת סיפור לפי ID (רק אם שייך למשתמש)"""
