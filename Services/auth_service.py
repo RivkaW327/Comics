@@ -2,7 +2,6 @@ from datetime import timedelta
 from typing import Optional
 from pydantic import EmailStr
 
-
 from FastAPIProject.Repositories.user_repository import UserRepository
 from FastAPIProject.Models.api.user import UserInDB, UserCreate, User, Token
 from FastAPIProject.Services.utils.auth import verify_password, get_password_hash, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
@@ -13,6 +12,7 @@ class AuthService:
         self.user_repository = UserRepository()
 
     async def authenticate_user(self, email: EmailStr, password: str) -> Optional[UserInDB]:
+        """Authenticate user by email and password"""
         user = await self.user_repository.get_user_by_email(email)
         if not user:
             raise Exception(f"Email {email} not found")
@@ -21,6 +21,7 @@ class AuthService:
         return user
 
     async def login(self, email: EmailStr, password: str) -> Optional[Token]:
+        """Login user and return access token and user data"""
         user = await self.authenticate_user(email, password)
         if not user:
             return None
@@ -33,7 +34,8 @@ class AuthService:
         return Token(access_token=access_token, token_type="bearer"), user
 
     async def register_user(self, user_create: UserCreate) -> Optional[User]:
-        # בדיקה אם המשתמש כבר קיים
+        """Register a new user and return user data and access token"""
+        # check if user already exists
         existing_email = await self.user_repository.get_user_by_email(user_create.email)
         if existing_email:
             raise Exception(f"User {user_create.email} already exists")
@@ -42,10 +44,10 @@ class AuthService:
         if existing_user:
             raise Exception(f"UserName {user_create.username} already exists")
 
-        # הצפנת הסיסמה
+        # encrypt the password
         hashed_password = get_password_hash(user_create.password)
 
-        # יצירת המשתמש
+        # create the user in the db
         user_in_db = await self.user_repository.create_user(user_create, hashed_password)
 
         user = User(
@@ -53,7 +55,7 @@ class AuthService:
             username=user_in_db.username,
             email=user_in_db.email,
         )
-        # יצירת טוקן גישה
+        # create access token
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
             data={"sub": user.username}, expires_delta=access_token_expires

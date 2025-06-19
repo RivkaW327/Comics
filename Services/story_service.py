@@ -1,23 +1,34 @@
-# Services/StoryService.py
 from FastAPIProject.Models.domain.story import Story
 from FastAPIProject.Services.story_processor import StoryProcessor
 from FastAPIProject.Models.domain.entity import Entity
 from FastAPIProject.Models.domain.paragraph import Paragraph
 from FastAPIProject.Repositories.story_repository import StoryRepository
 from FastAPIProject.Models.api.story_models import StoryModel, EntityModel, ParagraphModel, StoryResponse, StoryCreate
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+from bson import ObjectId
 import os
 
 
 class StoryService:
-    """שירות לניהול סיפורים - לוגיקה עסקית ואינטגרציה עם מסד נתונים"""
+    """Service for managing stories, including creation and retrieval"""
 
     def __init__(self):
         self.story_repository = StoryRepository()
         self.story_processor = StoryProcessor()
 
+    def _convert_objectid_to_string(self, data: Any) -> Any:
+        """convert ObjectId to string recursively"""
+        if isinstance(data, ObjectId):
+            return str(data)
+        elif isinstance(data, dict):
+            return {key: self._convert_objectid_to_string(value) for key, value in data.items()}
+        elif isinstance(data, list):
+            return [self._convert_objectid_to_string(item) for item in data]
+        else:
+            return data
+
     def _entity_to_model(self, entity: Entity) -> EntityModel:
-        """המרת Entity למודל של מסד הנתונים"""
+        """convert Entity to database model"""
         return EntityModel(
             name=entity.name,
             label=entity.label,
@@ -27,7 +38,7 @@ class StoryService:
         )
 
     def _paragraph_to_model(self, paragraph: Paragraph) -> ParagraphModel:
-        """המרת Paragraph למודל של מסד הנתונים"""
+        """covert Paragraph to database model"""
         entities = [self._entity_to_model(entity) for entity in paragraph.entities if entity is not None]
         return ParagraphModel(
             index=paragraph.index,
@@ -40,7 +51,7 @@ class StoryService:
         )
 
     def _story_to_model(self, story: Story, title: str, file_path: str, user_id: str) -> dict:
-        """המרת Story למודל של מסד הנתונים"""
+        """convert Story to database model"""
         entities = []
         if story.entities:
             entities = [self._entity_to_model(entity) for entity in story.entities]
@@ -62,7 +73,7 @@ class StoryService:
             "file_path": file_path
         }
 
-    async def create_story_from_file(self, story_create: StoryCreate, user_id: str) -> str:
+    async def create_story_from_file(self, story_create: StoryCreate, user_id: str) -> Dict[str, Any]:
         """create a new story from a file"""
         if not os.path.exists(story_create.file_path):
             raise FileNotFoundError(f"File not found: {story_create.file_path}")
@@ -75,7 +86,7 @@ class StoryService:
             raise ValueError(f"Story with title '{story_create.title}' already exists for this user")
 
         try:
-            #create a Story object from the file using StoryProcessor
+            # create a Story object from the file using StoryProcessor
             story = self.story_processor.create_story_from_file(story_create.file_path)
 
             if story.is_empty():
@@ -85,21 +96,25 @@ class StoryService:
             # save in db
             story_id = await self.story_repository.create_story(story_data, user_id)
 
-            return story_id
+            # get full story data after creation
+            full_story = await self.story_repository.get_story_by_id(story_id)
+
+            # convert ObjectId to string
+            return self._convert_objectid_to_string(full_story)
 
         except Exception as e:
             raise Exception(f"Failed to create story: {str(e)}")
 
-    async def get_story(self, story_id: str, user_id: str) -> Optional[dict]:
-        """קבלת סיפור לפי ID (רק אם שייך למשתמש)"""
+    async def get_story(self, story_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """get story by ID for a specific user"""
         story = await self.story_repository.get_story_by_id(story_id)
 
         if story and story.get("user_id") == user_id:
-            return story
+            return self._convert_objectid_to_string(story)
         return None
 
     async def get_user_stories(self, user_id: str) -> List[StoryResponse]:
-        """קבלת כל הסיפורים של משתמש"""
+        """get all stories for a specific user"""
         stories = await self.story_repository.get_stories_by_user_id(user_id)
 
         story_responses = []
@@ -117,51 +132,28 @@ class StoryService:
 
         return story_responses
 
-    async def update_story(self, story_id: str, user_id: str, update_data: dict) -> bool:
-        """עדכון סיפור"""
-        # וידוא שהסיפור שייך למשתמש
-        story = await self.get_story(story_id, user_id)
-        if not story:
-            return False
-
-        return await self.story_repository.update_story(story_id, update_data)
-
-    async def delete_story(self, story_id: str, user_id: str) -> bool:
-        """מחיקת סיפור"""
-        # וידוא שהסיפור שייך למשתמש לפני המחיקה
-        story = await self.get_story(story_id, user_id)
-        if not story:
-            return False
-
-        return await self.story_repository.delete_story(story_id, user_id)
-
-    async def reprocess_story(self, story_id: str, user_id: str) -> bool:
-        """עיבוד מחדש של סיפור קיים"""
-        story_data = await self.get_story(story_id, user_id)
-        if not story_data:
-            return False
-
-        try:
-            # עיבוד מחדש של הקובץ
-            new_story = self.story_processor.create_story_from_file(story_data["file_path"])
-
-            # המרה למודל מעודכן
-            updated_data = self._story_to_model(
-                new_story,
-                story_data["title"],
-                story_data["file_path"],
-                user_id
-            )
-
-            # עדכון במסד הנתונים
-            return await self.story_repository.update_story(story_id, updated_data)
-
-        except Exception as e:
-            print(f"Failed to reprocess story: {str(e)}")
-            return False
+    # async def update_story(self, story_id: str, user_id: str, update_data: dict) -> bool:
+    #     """update an existing story"""
+    #
+    #     # check if the story exists and belongs to the user
+    #     story = await self.get_story(story_id, user_id)
+    #     if not story:
+    #         return False
+    #
+    #     return await self.story_repository.update_story(story_id, update_data)
+    #
+    # async def delete_story(self, story_id: str, user_id: str) -> bool:
+    #     """delete a story by ID for a specific user"""
+    #
+    #     # before deleting, check if the story exists and belongs to the user
+    #     story = await self.get_story(story_id, user_id)
+    #     if not story:
+    #         return False
+    #
+    #     return await self.story_repository.delete_story(story_id, user_id)
 
     def get_story_statistics(self, story: Story) -> dict:
-        """קבלת סטטיסטיקות של סיפור"""
+        """get statistics for a given story"""
         return {
             "total_characters": len(story.text),
             "total_words": len(story.text.split()) if story.text else 0,

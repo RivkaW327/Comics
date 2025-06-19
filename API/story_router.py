@@ -1,9 +1,9 @@
-# API/story_router.py
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+import uuid
+from pathlib import Path
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.security import OAuth2PasswordBearer
 from typing import List, Any
 import os
-import tempfile
 from jose import JWTError, jwt
 
 from ..Services.story_service import StoryService
@@ -14,13 +14,15 @@ from ..config.config_loader import config
 router = APIRouter(prefix="/stories", tags=["stories"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
-# קונפיגורציה של הטוקן (צריך להיות זהה לזה שב-auth)
 SECRET_KEY = os.getenv("SECRET_KEY", config["jwt"]["secret_key"])
 ALGORITHM = config["jwt"]["algorithm"]
 
+UPLOAD_DIR = Path(config["uploads"]["directory"])
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
 
 async def get_current_user_id(token: str = Depends(oauth2_scheme)) -> str:
-    """קבלת המשתמש הנוכחי מהטוקן"""
+    """get user by token"""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -35,7 +37,7 @@ async def get_current_user_id(token: str = Depends(oauth2_scheme)) -> str:
     except JWTError:
         raise credentials_exception
 
-    # קבלת פרטי המשתמש מהמסד נתונים
+    # get user details from db
     auth_service = AuthService()
     user = await auth_service.user_repository.get_user_by_username(username)
     if user is None:
@@ -44,89 +46,77 @@ async def get_current_user_id(token: str = Depends(oauth2_scheme)) -> str:
     return str(user.id)
 
 
-@router.post("/create", response_model=dict[str, Any])
-async def create_story(
-        story_create: StoryCreate,
-        current_user_id: str = Depends(get_current_user_id)
-):
-    """יצירת סיפור חדש מקובץ קיים"""
-    story_service = StoryService()
-
-    try:
-        story_id = await story_service.create_story_from_file(story_create, current_user_id)
-        return {
-            "message": "Story created successfully",
-            "story_id": story_id,
-            "title": story_create.title
-        }
-    except FileNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
-        )
-    except ValueError as e:
+def validate_pdf_file(file: UploadFile) -> None:
+    """check if the file is a valid PDF file"""
+    if file.content_type != 'application/pdf':
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail="Only PDF files are supported. Please upload a PDF file."
         )
-    except Exception as e:
+
+    if not file.filename or not file.filename.lower().endswith('.pdf'):
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create story: {str(e)}"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File must have .pdf extension"
         )
+
 
 
 @router.post("/upload-and-create", response_model=dict[str, Any])
 async def upload_and_create_story(
-        title: str,
         file: UploadFile = File(...),
+        title: str = Form(None),
         current_user_id: str = Depends(get_current_user_id)
 ):
-    """העלאת קובץ ויצירת סיפור"""
+    """upload file and create a new operation"""
     story_service = StoryService()
 
-    # בדיקת סוג הקובץ
-    if not file.filename.lower().endswith(('.pdf', '.txt', '.docx')):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File type not supported. Please upload PDF, TXT, or DOCX files."
-        )
+    # check if the file is only PDF
+    validate_pdf_file(file)
+
+    # save title if provided, otherwise use filename or default title
+    if not title or not title.strip():
+        if file.filename:
+            title = file.filename.replace('.pdf', '').replace('.PDF', '')
+        else:
+            title = "Untitled Story"
+
+    title = title.strip()
 
     try:
-        # יצירת קובץ זמני
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as temp_file:
-            content = await file.read()
-            temp_file.write(content)
-            temp_file_path = temp_file.name
+        content = await file.read()
 
-        # יצירת אובייקט StoryCreate
-        story_create = StoryCreate(title=title, file_path=temp_file_path)
+        # checking if the content start with PDF signature
+        if not content.startswith(b'%PDF'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid PDF file format"
+            )
 
-        # יצירת הסיפור
-        story_id = await story_service.create_story_from_file(story_create, current_user_id)
+        # create a unique filename
+        unique_filename = f"{uuid.uuid4()}_{file.filename}"
+        file_path = UPLOAD_DIR / unique_filename
 
-        # מחיקת הקובץ הזמני
-        os.unlink(temp_file_path)
+        # save the file
+        with open(file_path, "wb") as f:
+            f.write(content)
+
+        story_create = StoryCreate(title=title, file_path=str(file_path))
+        story_data = await story_service.create_story_from_file(story_create, current_user_id)
 
         return {
-            "message": "Story uploaded and created successfully",
-            "story_id": story_id,
-            "title": title,
-            "original_filename": file.filename
+            "message": "PDF story uploaded and created successfully",
+            "story": story_data,
         }
 
+    except HTTPException:
+        raise
     except ValueError as e:
-        # מחיקת הקובץ הזמני במקרה של שגיאה
-        if 'temp_file_path' in locals():
-            os.unlink(temp_file_path)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
-        # מחיקת הקובץ הזמני במקרה של שגיאה
-        if 'temp_file_path' in locals():
-            os.unlink(temp_file_path)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create story: {str(e)}"
@@ -135,7 +125,7 @@ async def upload_and_create_story(
 
 @router.get("/", response_model=List[StoryResponse])
 async def get_user_stories(current_user_id: str = Depends(get_current_user_id)):
-    """קבלת כל הסיפורים של המשתמש הנוכחי"""
+    """get oll stories for the current user"""
     story_service = StoryService()
 
     try:
@@ -153,7 +143,7 @@ async def get_story(
         story_id: str,
         current_user_id: str = Depends(get_current_user_id)
 ):
-    """קבלת סיפור לפי ID"""
+    """get story by ID"""
     story_service = StoryService()
 
     try:
@@ -174,54 +164,54 @@ async def get_story(
         )
 
 
-@router.put("/{story_id}", response_model=dict[str, Any])
-async def update_story(
-        story_id: str,
-        update_data: dict,
-        current_user_id: str = Depends(get_current_user_id)
-):
-    """עדכון סיפור"""
-    story_service = StoryService()
+# @router.put("/{story_id}", response_model=dict[str, Any])
+# async def update_story(
+#         story_id: str,
+#         update_data: dict,
+#         current_user_id: str = Depends(get_current_user_id)
+# ):
+#     """update story by ID"""
+#     story_service = StoryService()
+#
+#     try:
+#         success = await story_service.update_story(story_id, current_user_id, update_data)
+#         if not success:
+#             raise HTTPException(
+#                 status_code=status.HTTP_404_NOT_FOUND,
+#                 detail="Story not found or access denied"
+#             )
+#
+#         return {"message": "Story updated successfully"}
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail=f"Failed to update story: {str(e)}"
+#         )
 
-    try:
-        success = await story_service.update_story(story_id, current_user_id, update_data)
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Story not found or access denied"
-            )
 
-        return {"message": "Story updated successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update story: {str(e)}"
-        )
-
-
-@router.delete("/{story_id}", response_model=dict[str, Any])
-async def delete_story(
-        story_id: str,
-        current_user_id: str = Depends(get_current_user_id)
-):
-    """מחיקת סיפור"""
-    story_service = StoryService()
-
-    try:
-        success = await story_service.delete_story(story_id, current_user_id)
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Story not found or access denied"
-            )
-
-        return {"message": "Story deleted successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete story: {str(e)}"
-        )
+# @router.delete("/{story_id}", response_model=dict[str, Any])
+# async def delete_story(
+#         story_id: str,
+#         current_user_id: str = Depends(get_current_user_id)
+# ):
+#     """delete story by ID"""
+#     story_service = StoryService()
+#
+#     try:
+#         success = await story_service.delete_story(story_id, current_user_id)
+#         if not success:
+#             raise HTTPException(
+#                 status_code=status.HTTP_404_NOT_FOUND,
+#                 detail="Story not found or access denied"
+#             )
+#
+#         return {"message": "Story deleted successfully"}
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail=f"Failed to delete story: {str(e)}"
+#         )

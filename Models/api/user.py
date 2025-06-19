@@ -1,4 +1,3 @@
-# models/user.py - עדכון למודל המשתמש
 from pydantic import BaseModel, Field, EmailStr, GetJsonSchemaHandler
 from typing import Optional, Annotated, Any, List
 from datetime import datetime
@@ -6,7 +5,6 @@ from bson import ObjectId
 from pydantic_core import core_schema
 
 
-# מותאם עבור Pydantic V2
 class PyObjectId(ObjectId):
     @classmethod
     def __get_pydantic_core_schema__(

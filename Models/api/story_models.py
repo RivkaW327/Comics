@@ -1,9 +1,8 @@
-# Models/story_models.py
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Union
 from datetime import datetime
 from bson import ObjectId
-from FastAPIProject.Models.api.user import PyObjectId
+from ..api.user import PyObjectId
 
 
 class EntityModel(BaseModel):

@@ -16,13 +16,13 @@ from textranker import TextRanker
 
 
 class StoryProcessor:
-    """מחלקה לעיבוד וחילוץ תוכן מסיפורים"""
+    """proccess story and extract text, entities and key paragraphs"""
 
     def __init__(self):
         self.text_ranker = TextRanker()
 
     def create_story_from_file(self, path: str) -> Story:
-        """יצירת אובייקט Story מקובץ"""
+        """create a Story object from a file path"""
         story = Story()
         story.text, story.chapters, story.paragraphs = self.extract_text(path)
         story.entities = self.extract_entities(story)
@@ -30,11 +30,11 @@ class StoryProcessor:
         return story
 
     def extract_text(self, path: str) -> Tuple[str, List[Tuple[int, int]], List[Tuple[int, int]]]:
+        """extract text from a file and return the plain text, chapters and paragraphs"""
         if path.endswith(".pdf"):
             return self.text_from_pdf(path)
         else:
             raise Exception("Unsupported file format")
-
 
     def _extract_text_from_blocks(self, blocks, continuous_text: str, paragraphs: list,
                                   current_paragraph_start: int, prev_block) -> Tuple:
@@ -57,7 +57,6 @@ class StoryProcessor:
             prev_block = block
 
         return continuous_text, paragraphs, current_paragraph_start, prev_block, text_elements
-
 
     def extract_entities(self, story: Story) -> List[Entity]:
         """entities extraction"""
@@ -166,14 +165,14 @@ class StoryProcessor:
 
     def extract_chapters_as_indices(self, text_elements: list[tuple[float, float, str]],
                                     plain_text: str, avg_line_height: float) -> list[tuple[int, int]]:
-        """חילוץ פרקים כאינדקסים של התחלה וסיום בטקסט"""
+        """chapter extraction as indices"""
         if len(text_elements) <= 2:  # רק אלמנטים של התחלה וסוף
             return [(0, len(plain_text))] if plain_text else []
 
         threshold = avg_line_height * 10
         start_of_page = None
 
-        # מציאת תחילת העמוד
+        # find the start and end of the page
         valid_elements = [l for (_, l, t) in text_elements if t != "\0"]
         if not valid_elements:
             return [(0, len(plain_text))] if plain_text else []
@@ -195,32 +194,32 @@ class StoryProcessor:
             if text_content == "\0":
                 continue
 
-            # בדיקה אם זה תחילת פרק חדש
+            # check if this is the start of a new chapter
             if (prev_element[2] == "\0" and
                     abs(start_of_page - current_element[0]) >= threshold):
 
-                # סיים את הפרק הנוכחי (אם זה לא הפרק הראשון)
+                # end the current chapter if it has content
                 if current_position > current_chapter_start:
                     chapters.append((current_chapter_start, current_position))
 
-                # התחל פרק חדש
+                # start a new chapter
                 current_chapter_start = current_position
 
-            # הוסף את אורך הטקסט הנוכחי
-            current_position += len(text_content) + 1  # +1 לרווח
+            # add the text content to the current position
+            current_position += len(text_content) + 1
 
-            # בדיקה אם זה סוף פרק
+            # check if this is the end of a chapter
             if (next_element[2] == "\0" and
                     abs(end_of_page - current_element[1]) >= threshold):
-                # סיים את הפרק הנוכחי
+                # end the current chapter if it has content
                 chapters.append((current_chapter_start, current_position))
                 current_chapter_start = current_position
 
-        # הוסף את הפרק האחרון אם נשאר טקסט
+        # add the last chapter if it has content
         if current_position > current_chapter_start:
             chapters.append((current_chapter_start, min(current_position, len(plain_text))))
 
-        # אם לא נמצאו פרקים, צור פרק יחיד
+        # create a chapter for the entire text if no chapters were found
         if not chapters and plain_text:
             chapters = [(0, len(plain_text))]
 

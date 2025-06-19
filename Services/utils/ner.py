@@ -88,23 +88,26 @@ def entity_extraction(chapters: list[str]) -> list[Entity]:
 
 
 def ner(chapter):
+    """Extract named entities from a chapter using spaCy"""
     doc = nlp(chapter)
     entities = [(ent.text, ent.label_, ent.start_char, ent.end_char) for ent in doc.ents]
     return entities
 
-
 def coreference_resolution(chapter: str):
+    """Resolve coreferences in a chapter using Maverick"""
     result = coref_model.predict(chapter)
     chapter_chars = zip(result["clusters_token_text"], result["clusters_char_offsets"])
     return chapter_chars
 
 
 def description_extraction(chapter: str, characters: list[Entity]):
+    """Extract character descriptions from a chapter using Google Gemini API"""
     descriptions = api_to_gemini(chapter, characters)
     return descriptions
 
 
 def get_ent_by_nickname(nickname: str, entities: list[Entity]) -> Entity:
+    """Get an entity by its nickname from a list of entities"""
     for entity in entities:
         for nName in entity.nicknames:
             if nName == nickname:

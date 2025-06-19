@@ -5,6 +5,7 @@ from google import genai
 
 
 def api_to_gemini(passage: str, characters: list[Entity]) -> dict[str, dict[str, str]]:
+    """ Extracts character appearances from a passage using Google Gemini API"""
     charsWithNicks = [
         f"{i}. {char.name} whose nicknames is: {char.nicknames}"
         for i, char in enumerate(characters)
@@ -38,7 +39,7 @@ def api_to_gemini(passage: str, characters: list[Entity]) -> dict[str, dict[str,
             print("Gemini returned empty response")
             return {}
 
-        # ניקוי תגיות קוד אם קיימות
+        # clean up the text to ensure it's valid JSON
         if text.startswith("```json"):
             text = text.strip("```json").strip("```").strip()
 
@@ -48,7 +49,7 @@ def api_to_gemini(passage: str, characters: list[Entity]) -> dict[str, dict[str,
             print(f"Gemini returned non-dict JSON: {parsed_json}")
             return {}
 
-        # בדיקה שהערכים הם גם dict
+        # check if all values are dict
         for k, v in parsed_json.items():
             if not isinstance(v, dict):
                 print(f"Invalid value for key '{k}': Expected dict, got {type(v)}")
