@@ -1,4 +1,3 @@
-# Services/StoryProcessor.py
 import fitz  # PyMuPDF
 import pytesseract
 from PIL import Image
@@ -12,7 +11,9 @@ from FastAPIProject.Models.domain.paragraph import Paragraph
 from FastAPIProject.Services.utils.ner import coref_model, entity_extraction
 from FastAPIProject.Services.utils.pegasus_xsum import abstractive_summarization
 import textranker
-from textranker import TextRanker
+from textranker import TextRanker,Interval, IntervalTree
+
+from Services.utils.ner import get_place_and_time
 
 
 class StoryProcessor:
@@ -60,7 +61,7 @@ class StoryProcessor:
 
     def extract_entities(self, story: Story) -> List[Entity]:
         """entities extraction"""
-        chapter_texts = [story.chapter_by_range(start, end) for start, end in story.chapters]
+        chapter_texts = [story.text_by_range(start, end) for start, end in story.chapters]
         return entity_extraction(chapter_texts)
 
     def _extract_text_with_ocr(self, page, continuous_text: str, paragraphs: list,
@@ -89,14 +90,21 @@ class StoryProcessor:
 
             # check if this is a new paragraph based on y position
             if last_y is not None and abs(y - last_y) >= avg_font_size * 1.1:
-                # end the current paragraph if it has content
                 if len(continuous_text) > current_paragraph_start:
+                    txt = continuous_text[current_paragraph_start:].split()
+
+                    # if the paragraph is too short, skip it
+                    if len(txt) < 10:
+                        continuous_text = continuous_text[:current_paragraph_start]
+                        continue
+
+                    # end the current paragraph if it has content
                     paragraphs.append((current_paragraph_start, len(continuous_text)))
                 # start a new paragraph
                 current_paragraph_start = len(continuous_text)
 
             # add the text content to the continuous text
-            continuous_text += text_content + " "
+            continuous_text += text_content.strip() + " "
             text_elements.append((x, y, text_content))
             last_y = y
 
@@ -225,28 +233,42 @@ class StoryProcessor:
 
         return chapters
 
-
     def extract_key_paragraphs(self, story: Story) -> List[List[Paragraph]]:
         """extract key paragraphs from the story"""
-        key_paragraphs = [[] for _ in range(len(story.chapters))]
+        key_paragraphs = []
         entities_positions = [e.get_position() for e in story.entities if e.get_position()]
 
         for i, (chapter_start, chapter_end) in enumerate(story.chapters):
-            chapter_text = story.chapter_by_range(chapter_start, chapter_end)
-            result = self.summarize_chapter(chapter_text, entities_positions, story.paragraphs)
-
-            for index, entities in result.items():
-                start, end = story.paragraphs[index][0], story.paragraphs[index][1]
-                summary = abstractive_summarization(story.paragraph_by_range(start, end))
-                ents = [None]  # [story.entities[e] for e in entities if e < len(story.entities)]
-                para = Paragraph(index, start, end, ents, summary)
-                key_paragraphs[i].append(para)
+            chapter_text = story.text_by_range(chapter_start, chapter_end)
+            chapter_paragraphs = self.summarize_chapter(story, chapter_text, entities_positions, story.paragraphs)
+            key_paragraphs.append(chapter_paragraphs)
 
         return key_paragraphs
 
-    def summarize_chapter(self, chapter: str, entities: List[List[Tuple[int, int]]],
-                          paragraphs: List[Tuple[int, int]]) -> dict:
+
+    def summarize_chapter(self, story: Story, chapter: str, entities: List[List[Tuple[int, int]]],
+                          paragraphs: List[Tuple[int, int]]) -> List[Paragraph]:
         """summarize the chapter and extract key paragraphs"""
-        return self.text_ranker.ExtractKeyParagraphs(
-            chapter, paragraphs, entities, int(len(paragraphs) * 0.75)
+        kp = self.text_ranker.ExtractKeyParagraphs(
+            chapter, paragraphs, entities, int(len(paragraphs) * 0.65)
         )
+        orgenized_kp = []
+        for index, entities in kp.items():
+            start, end = story.paragraphs[index][0], story.paragraphs[index][1]
+            ents_objects = [story.entities[e] for e in entities if e < len(story.entities)]
+            para = Paragraph(index, start, end, entities)
+            para.place, para.time = get_place_and_time(ents_objects)
+            orgenized_kp.append(para)
+
+        orgenized_kp = self.summarize_chapter_abstractive(story, chapter, orgenized_kp)
+        return orgenized_kp
+
+    def summarize_chapter_abstractive(self,story: Story, chapter: str, paragraphs: List[Paragraph]) -> List[Paragraph]:
+        """summarize the chapter using abstractive summarization"""
+        paragraphs_texts = [story.text_by_range(p.start, p.end) for p in paragraphs]
+        summary = abstractive_summarization(paragraphs_texts)
+
+        for (p, s) in zip(paragraphs, summary):
+            p.set_summary(s)
+
+        return paragraphs

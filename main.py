@@ -1,5 +1,7 @@
 import sys
 import os
+import threading
+import winsound
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -32,12 +34,25 @@ def _patched_hidden_size(self):
 DebertaV2Model.hidden_size = property(_patched_hidden_size)
 
 
+def play_startup_sound():
+    """Play startup sound using Windows winsound"""
+    try:
+        # ביפ כפול לסימון עליית השרת
+        winsound.Beep(800, 300)  # Frequency 800Hz for 300ms
+        winsound.Beep(1000, 500)  # Frequency 1000Hz for 500ms
+    except Exception as e:
+        print(f"Failed to play startup sound: {str(e)}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager - handles startup and shutdown events"""
     # Startup: Connect to database
     await Database.connect_db()
     print("Connected to MongoDB!")
+
+    # Play startup sound in a separate thread to avoid blocking the server startup
+    threading.Thread(target=play_startup_sound, daemon=True).start()
 
     yield
 

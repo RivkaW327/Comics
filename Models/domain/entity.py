@@ -5,7 +5,7 @@ class Entity:
         self.label = label
         self.nicknames = nicknames
         self.coref_position = coref_position
-        self.description = description # check about the format
+        self.description = description
 
     def get_position(self):
         return self.coref_position

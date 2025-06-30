@@ -39,12 +39,11 @@ class StoryService:
 
     def _paragraph_to_model(self, paragraph: Paragraph) -> ParagraphModel:
         """covert Paragraph to database model"""
-        entities = [self._entity_to_model(entity) for entity in paragraph.entities if entity is not None]
         return ParagraphModel(
             index=paragraph.index,
             start=paragraph.start,
             end=paragraph.end,
-            entities=entities,
+            entities=paragraph.entities,
             summary=paragraph.summary if hasattr(paragraph, 'summary') else None,
             place=paragraph.place if hasattr(paragraph, 'place') else None,
             time=paragraph.time if hasattr(paragraph, 'time') else None

@@ -10,7 +10,7 @@ class EntityModel(BaseModel):
     label: str
     nicknames: List[str] = []
     coref_position: List[tuple[int, int]] = []
-    description: Optional[Dict[str, str]] = None
+    description: Optional[Dict] = None
 
     class Config:
         populate_by_name = True
@@ -20,10 +20,10 @@ class ParagraphModel(BaseModel):
     index: int
     start: int
     end: int
-    entities: List[EntityModel] = []
+    entities: List[int] = []
     summary: Optional[str] = None
-    place: Union[str, List[str], None] = None
-    time: Union[str, List[str], None] = None
+    place: List[int] = None
+    time: List[int] = None
 
     class Config:
         populate_by_name = True

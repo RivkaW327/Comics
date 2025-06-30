@@ -11,6 +11,8 @@ from ..Services.auth_service import AuthService
 from ..Models.api.story_models import StoryCreate, StoryResponse
 from ..config.config_loader import config
 
+import traceback
+
 router = APIRouter(prefix="/stories", tags=["stories"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
@@ -117,6 +119,8 @@ async def upload_and_create_story(
             detail=str(e)
         )
     except Exception as e:
+        traceback.print_exc()
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create story: {str(e)}"
